@@ -1,0 +1,182 @@
+# 1. Secret for MongoDB and JWT
+apiVersion: v1
+kind: Secret
+metadata:
+  name: app-secrets
+stringData:
+  MONGO_ROOT_USERNAME: "admin"
+  MONGO_ROOT_PASSWORD: "password123"
+  JWT_SECRET_KEY: "a-very-secure-and-long-secret-key-that-you-should-change"
+---
+# 2. StatefulSet and Service for MongoDB
+apiVersion: v1
+kind: Service
+metadata:
+  name: todo-db-service
+spec:
+  selector: {app: todo-db}
+  ports:
+  - {port: 27017, targetPort: 27017}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: todo-db
+spec:
+  serviceName: "todo-db-service"
+  replicas: 1
+  selector:
+    matchLabels: {app: todo-db}
+  template:
+    metadata:
+      labels: {app: todo-db}
+    spec:
+      containers:
+      - name: mongo
+        image: mongo:5.0
+        ports:
+        - containerPort: 27017
+        env:
+        - name: MONGO_INITDB_ROOT_USERNAME
+          valueFrom: {secretKeyRef: {name: app-secrets, key: MONGO_ROOT_USERNAME}}
+        - name: MONGO_INITDB_ROOT_PASSWORD
+          valueFrom: {secretKeyRef: {name: app-secrets, key: MONGO_ROOT_PASSWORD}}
+---
+# 3. Deployment and Service for the User Service (NEW)
+apiVersion: v1
+kind: Service
+metadata:
+  name: user-service-service
+spec:
+  selector: {app: user-service}
+  ports:
+  - {port: 80, targetPort: 5001}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: user-service}
+  template:
+    metadata:
+      labels: {app: user-service}
+    spec:
+      containers:
+      - name: user-service
+        image: attendease2024/user-service:v2-final # <-- New service image
+        ports:
+        - containerPort: 5001
+        env:
+        - name: MONGO_USER
+          valueFrom: {secretKeyRef: {name: app-secrets, key: MONGO_ROOT_USERNAME}}
+        - name: MONGO_PASSWORD
+          valueFrom: {secretKeyRef: {name: app-secrets, key: MONGO_ROOT_PASSWORD}}
+        - name: MONGO_HOST
+          value: "todo-db-service"
+        - name: JWT_SECRET_KEY
+          valueFrom: {secretKeyRef: {name: app-secrets, key: JWT_SECRET_KEY}}
+---
+# 4. Deployment and Service for the Backend API (UPDATED)
+apiVersion: v1
+kind: Service
+metadata:
+  name: todo-api-service
+spec:
+  selector: {app: todo-api}
+  ports:
+  - {port: 80, targetPort: 5000}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: todo-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: todo-api}
+  template:
+    metadata:
+      labels: {app: todo-api}
+    spec:
+      containers:
+      - name: todo-api
+        image: attendease2024/todo-api:v3-final # <-- Use new tag
+        ports:
+        - containerPort: 5000
+        env:
+        - name: MONGO_USER
+          valueFrom: {secretKeyRef: {name: app-secrets, key: MONGO_ROOT_USERNAME}}
+        - name: MONGO_PASSWORD
+          valueFrom: {secretKeyRef: {name: app-secrets, key: MONGO_ROOT_PASSWORD}}
+        - name: MONGO_HOST
+          value: "todo-db-service"
+        - name: JWT_SECRET_KEY
+          valueFrom: {secretKeyRef: {name: app-secrets, key: JWT_SECRET_KEY}}
+---
+# 5. Deployment and Service for the Frontend
+apiVersion: v1
+kind: Service
+metadata:
+  name: todo-frontend-service
+spec:
+  selector: {app: todo-frontend}
+  ports:
+  - {port: 80, targetPort: 80}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: todo-frontend
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: todo-frontend}
+  template:
+    metadata:
+      labels: {app: todo-frontend}
+    spec:
+      containers:
+      - name: todo-frontend
+        image: attendease2024/todo-frontend:v2-final # <-- Use new tag
+        ports:
+        - containerPort: 80
+---
+# 6. Ingress to route all traffic (UPDATED)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: todo-ingress
+spec:
+  ingressClassName: nginx
+  rules:
+  - http:
+      paths:
+      # This rule sends /auth requests to the user-service
+      - path: /auth
+        pathType: Prefix
+        backend:
+          service:
+            name: user-service-service
+            port:
+              number: 80
+
+      # This rule sends /api requests to the todo-api
+      - path: /api
+        pathType: Prefix
+        backend:
+          service:
+            name: todo-api-service
+            port:
+              number: 80
+
+      # This rule sends all other requests to the frontend
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: todo-frontend-service
+            port:
+              number: 80
