@@ -102,7 +102,9 @@ Before you begin, ensure you have the following tools installed:
     ```bash
     minikube service ingress-nginx-controller --url -n ingress-nginx
     ```
-8.  **Access the Application**
+    Open your web browser and navigate to the IP address provided (e.g., `http://127.0.0.1:44131`).
+    
+9.  **If the url doesnt show up in the above step**
     Open another new terminal and get your cluster's IP address.
     ```bash
     minikube ip
